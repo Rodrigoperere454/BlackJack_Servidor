@@ -25,4 +25,12 @@ public class Card implements Serializable{
    public int getOrder(){
        return order;
    }
+
+    public int getValue() {
+        return value;
+    }
+
+    public void setValue(int value) {
+        this.value = value;
+    }
 }

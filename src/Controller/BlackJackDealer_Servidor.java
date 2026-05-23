@@ -174,29 +174,6 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
 
     }
 
-    /*public void enviarVezJogador(Jogador jogador) {
-        jogador.setIsPlaying(true);
-        List<Jogador> saidasInesperadas = new ArrayList<>();
-
-        for (Jogador j : allJogadores) {
-            try {
-                //j.getRefJogador().receberTurno(jogador);
-            } catch (RemoteException e) {
-                saidasInesperadas.add(j);
-                e.printStackTrace();
-                System.out.println("Jogador saiu brutamente");
-            }
-
-        }
-        if (saidasInesperadas.size() > 0) {
-            for (Jogador i : saidasInesperadas) {
-                jogadoresAtivos.remove(i);
-                allJogadores.remove(i);
-                System.out.println("Jogador removido");
-            }
-        }
-
-    }*/
     @Override
     public int login(Jogador jogador) throws RemoteException {
 
@@ -226,8 +203,9 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
         }
 
     }
+
     @Override
-    public void iniciarJogo() throws RemoteException{
+    public void iniciarJogo() throws RemoteException {
         if (jogadoresAtivos.size() > 0) {
             comecarRonda();
         }
@@ -235,9 +213,28 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
 
     @Override
     public void jogadorPediuHit(int idJogador) throws RemoteException {
+        int proximoJogador = this.indiceJogadorAjogar + 1;
+        int totalValor = 0;
         for (Jogador j : jogadoresAtivos) {
             if (j.getId() == idJogador) {
                 darHitJogador(j);
+                for (int i = 0; i < j.getCartas().size(); i++) {
+                    totalValor += j.getCartas().get(i).getValue();
+                }
+                if (totalValor > 21) {
+                    j.getRefJogador().indicarPerdeu();
+                    if (proximoJogador >= jogadoresAtivos.size()) {
+                        System.out.println("Perde");
+                    } else {
+                        this.indiceJogadorAjogar = proximoJogador;
+                        System.out.println("minha vez");
+                        for (Jogador jog : allJogadores) {
+                            jog.getRefJogador().receberTurno(jogadoresAtivos.get(this.indiceJogadorAjogar).getId(), jogadoresAtivos.get(this.indiceJogadorAjogar).getNome());
+                        }
+
+                    }
+                }
+
             }
         }
     }
@@ -252,17 +249,20 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
 
     @Override
     public void jogadorPediuStand() throws RemoteException {
-        int proximoJogador = this.indiceJogadorAjogar += 1;
-        if (jogadoresAtivos.get(proximoJogador) != null) {
+        int proximoJogador = this.indiceJogadorAjogar + 1;
+        if (proximoJogador >= jogadoresAtivos.size()) {
+            //terminar 
+        } else {
+            this.indiceJogadorAjogar = proximoJogador;
+            
             for (Jogador j : allJogadores) {
                 try {
-                    j.getRefJogador().receberTurno(jogadoresAtivos.get(proximoJogador).getId(), jogadoresAtivos.get(proximoJogador).getNome());
+                    j.getRefJogador().receberTurno(jogadoresAtivos.get(this.indiceJogadorAjogar).getId(), jogadoresAtivos.get(this.indiceJogadorAjogar).getNome());
                 } catch (RemoteException e) {
                     System.out.println(e);
                 }
             }
-        } else {
-            this.round = false;
+            //this.round = false;
             //Codigo para verificar valores e pedir cartas do dealer
         }
     }
