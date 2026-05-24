@@ -53,53 +53,20 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     }
 
     public void darCartasInicio(Jogador jogador) {
-        List<Jogador> saidasInesperadas = new ArrayList<>();
         Card carta1;
         Card carta2;
 
         synchronized (jogadoresAtivos) {
-            try {
-                if (jogadoresAtivos.size() == 0) {
-                    jogadoresAtivos.add(jogador);
-                    this.gameDeck = new Deck();
-                    this.gameDeck.shuffle();
-                    carta1 = gameDeck.deal();
-                    carta2 = gameDeck.deal();
+            carta1 = this.gameDeck.deal();
+            carta2 = this.gameDeck.deal();
 
-                    jogador.addCartas(carta1);
-                    jogador.addCartas(carta2);
-                    darCartasDealer();
-                    comecarRonda();
-                    atualizarJogador();
-
-                } else {
-                    carta1 = gameDeck.deal();
-                    carta2 = gameDeck.deal();
-
-                    jogador.addCartas(carta1);
-                    jogador.addCartas(carta2);
-                    jogadoresAtivos.add(jogador);
-                    atualizarJogador();
-
-                }
-            } catch (Exception e) {
-                saidasInesperadas.add(jogador);
-                e.printStackTrace();
-                System.out.println("Jogador saiu brutamente");
-            }
-
-            if (saidasInesperadas.size() > 0) {
-                for (Jogador i : saidasInesperadas) {
-                    jogadoresAtivos.remove(i);
-                    allJogadores.remove(i);
-                    System.out.println("Jogador removido");
-                }
-            }
+            jogador.addCartas(carta1);
+            jogador.addCartas(carta2);
         }
     }
 
     public void darCartasDealer() {
-        if (cartasDealer.size() == 0) {
+        if (cartasDealer.isEmpty()) {
             Card carta1 = new Card("bv", 0, 0);
             Card carta2 = this.gameDeck.deal();
             cartasDealer.add(carta1);
@@ -108,25 +75,108 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
             Card carta1 = this.gameDeck.deal();
             cartasDealer.add(carta1);
         }
-
-        for (Jogador j : allJogadores) {
-            atualizarJogador();
-
-        }
     }
 
     public void comecarRonda() {
-        //this.round = true;
-        Jogador atual = jogadoresAtivos.get(indiceJogadorAjogar);
+        this.round = true;
 
-        for (Jogador j : allJogadores) {
-            try {
-                j.getRefJogador().receberTurno(atual.getId(), atual.getNome());
-            } catch (RemoteException e) {
-                System.out.println(e);
+        this.gameDeck = new Deck();
+        this.gameDeck.shuffle();
+
+        darCartasDealer();
+        Jogador primeiroAjogar = jogadoresAtivos.get(indiceJogadorAjogar);
+
+        try {
+            for (Jogador jo : jogadoresAtivos) {
+                jo.setIsPlaying(true);
+                jo.setNumeroFichas(-2);
+                darCartasInicio(jo);
+            }
+            for (Jogador j : allJogadores) {
+                j.getRefJogador().receberTurno(primeiroAjogar.getId(), primeiroAjogar.getNome());
+            }
+        } catch (RemoteException e) {
+            System.out.println(e);
+
+        }
+        atualizarJogador();
+    }
+
+    public void acabarRounda() {
+        this.round = false;
+
+        int totalValorDealer = 0;
+        for (int i = 0; i < this.cartasDealer.size(); i++) {
+            totalValorDealer += this.cartasDealer.get(i).getValue();
+        }
+        while (totalValorDealer < 17) {
+            darCartasDealer();
+            atualizarJogador();
+
+            totalValorDealer = 0;
+            for (int i = 0; i < this.cartasDealer.size(); i++) {
+                totalValorDealer += this.cartasDealer.get(i).getValue();
             }
         }
 
+        if (totalValorDealer > 21) {
+            for (Jogador j : jogadoresAtivos) {
+                if (j.isIsPlaying()) {
+                    j.setNumeroFichas(4);
+                }
+            }
+        } else if (totalValorDealer == 21 && cartasDealer.size() == 2) {
+            for (Jogador j : jogadoresAtivos) {
+                if (j.isIsPlaying()) {
+                    if (j.getValorCartas() < 21) {
+                        j.setNumeroFichas(0);
+                    } else if (j.getValorCartas() == 21 && j.getCartas().size() == 2) {
+                        j.setNumeroFichas(2);
+                    } else if (j.getValorCartas() == 21) {
+                        j.setNumeroFichas(0);
+                    }
+                }
+            }
+        } else if (totalValorDealer == 21) {
+            for (Jogador jog : jogadoresAtivos) {
+                if (jog.isIsPlaying()) {
+                    if (jog.getValorCartas() < 21) {
+                        jog.setNumeroFichas(0);
+                    } else if (jog.getValorCartas() == 21 && jog.getCartas().size() == 2) {
+                        jog.setNumeroFichas(4);
+                    } else if (jog.getValorCartas() == 21) {
+                        jog.setNumeroFichas(2);
+                    }
+                }
+            }
+
+        } else {
+            for (Jogador jo : jogadoresAtivos) {
+                if (jo.isIsPlaying()) {
+                    if (jo.getValorCartas() == 21 && jo.getCartas().size() == 2) {
+                        jo.setNumeroFichas(5);
+                    } else if (jo.getValorCartas() > totalValorDealer) {
+                        jo.setNumeroFichas(4);
+                    } else if (jo.getValorCartas() == totalValorDealer) {
+                        jo.setNumeroFichas(2);
+                    } else if (jo.getValorCartas() < totalValorDealer) {
+                        jo.setNumeroFichas(0);
+                    }
+                }
+
+            }
+        }
+        
+        //limpar cartas jogadores e dealer
+        for(Jogador joga: jogadoresAtivos){
+            joga.getCartas().clear();
+        }     
+        cartasDealer.clear();
+        
+        atualizarJogador();
+        
+        //comecarRonda();
+        
     }
 
     public void atualizarJogador() {
@@ -186,14 +236,18 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
         atribuirIDjogador(jogador, idJogador.incrementAndGet());
         allJogadores.add(jogador);
 
-        if (jogadoresAtivos.size() < 3) {
+        if (jogadoresAtivos.isEmpty()) {
+            jogadoresAtivos.add(jogador);
+            return A_JOGAR;
+        } else if (jogadoresAtivos.size() < 3) {
             if (round) {
-                //jogador.setIsEspectador(true);
+                jogador.setIsEspectador(true);
+                jogador.getRefJogador().meioRounda();
                 jogadoresAtivos.add(jogador);
                 atualizarJogador();
                 return EM_RONDA;
             } else {
-                darCartasInicio(jogador);
+                jogadoresAtivos.add(jogador);
                 return A_JOGAR;
             }
         } else {
@@ -223,11 +277,11 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
                 }
                 if (totalValor > 21) {
                     j.getRefJogador().indicarPerdeu();
+                    j.setIsPlaying(false);
                     if (proximoJogador >= jogadoresAtivos.size()) {
-                        System.out.println("Perde");
+                        acabarRounda();
                     } else {
                         this.indiceJogadorAjogar = proximoJogador;
-                        System.out.println("minha vez");
                         for (Jogador jog : allJogadores) {
                             jog.getRefJogador().receberTurno(jogadoresAtivos.get(this.indiceJogadorAjogar).getId(), jogadoresAtivos.get(this.indiceJogadorAjogar).getNome());
                         }
@@ -250,11 +304,11 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     @Override
     public void jogadorPediuStand() throws RemoteException {
         int proximoJogador = this.indiceJogadorAjogar + 1;
-        if (proximoJogador >= jogadoresAtivos.size()) {
-            //terminar 
+        if (proximoJogador >= jogadoresAtivos.size() || jogadoresAtivos.get(proximoJogador).isIsEspectador()) {
+            acabarRounda();
         } else {
             this.indiceJogadorAjogar = proximoJogador;
-            
+
             for (Jogador j : allJogadores) {
                 try {
                     j.getRefJogador().receberTurno(jogadoresAtivos.get(this.indiceJogadorAjogar).getId(), jogadoresAtivos.get(this.indiceJogadorAjogar).getNome());
@@ -262,9 +316,6 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
                     System.out.println(e);
                 }
             }
-            //this.round = false;
-            //Codigo para verificar valores e pedir cartas do dealer
         }
     }
-
 }

@@ -33,7 +33,7 @@ public class Jogador implements Serializable{
     }
 
     public void setNumeroFichas(int numeroFichas) {
-        this.numeroFichas = numeroFichas;
+        this.numeroFichas += numeroFichas;
     }
 
     public InterfaceJogadorCB getRefJogador() {
@@ -75,6 +75,15 @@ public class Jogador implements Serializable{
 
     public void addCartas(Card carta) {
         this.cartas.add(carta);
+    }
+    
+    public int getValorCartas(){
+        int total = 0;
+        for(int i = 0; i < this.cartas.size(); i++){
+            total = this.cartas.get(i).getValue();
+        }
+        
+        return total;
     }
     
      

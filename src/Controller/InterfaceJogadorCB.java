@@ -12,4 +12,5 @@ public interface InterfaceJogadorCB extends Remote{
     void receberTurno(int idJogador, String nome) throws RemoteException;
     void setIDjogador(int id) throws RemoteException;
     void indicarPerdeu() throws RemoteException;
+    void meioRounda() throws RemoteException;
 }
