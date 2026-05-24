@@ -45,7 +45,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
 
             reg.rebind("gestorBJ", serv);
 
-            System.out.println("Servidor RMI iniciado");
+            System.out.println("DEALER A ESPERA DE JOGADORES");
 
         } catch (Exception e) {
             System.out.println(e);
