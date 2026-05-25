@@ -52,6 +52,15 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
         }
     }
 
+    public void limparCartas() {
+
+        cartasDealer.clear();
+
+        for (Jogador j : jogadoresAtivos) {
+            j.getCartas().clear();
+        }
+    }
+
     public void darCartasInicio(Jogador jogador) {
         Card carta1;
         Card carta2;
@@ -77,8 +86,20 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
         }
     }
 
+    public void tirarCartasMesa() {
+        for (Jogador j : allJogadores) {
+            try {
+                j.getRefJogador().limparCardLabels();
+            } catch (RemoteException e) {
+                System.out.println(e);
+            }
+
+        }
+    }
+
     public void comecarRonda() {
         this.round = true;
+        atualizarJogador();
 
         this.gameDeck = new Deck();
         this.gameDeck.shuffle();
@@ -137,6 +158,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
                     }
                 }
             }
+
         } else if (totalValorDealer == 21) {
             for (Jogador jog : jogadoresAtivos) {
                 if (jog.isIsPlaying()) {
@@ -166,17 +188,17 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
 
             }
         }
-        
-        //limpar cartas jogadores e dealer
-        for(Jogador joga: jogadoresAtivos){
-            joga.getCartas().clear();
-        }     
-        cartasDealer.clear();
-        
-        atualizarJogador();
-        
-        //comecarRonda();
-        
+
+        for (Jogador joga : jogadoresAtivos) {
+            try {
+                joga.setIsEspectador(false);
+                joga.getRefJogador().playAgain();
+            } catch (RemoteException e) {
+                System.out.println(e);
+            }
+        }
+
+        limparCartas();
     }
 
     public void atualizarJogador() {
@@ -261,6 +283,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     @Override
     public void iniciarJogo() throws RemoteException {
         if (jogadoresAtivos.size() > 0) {
+            tirarCartasMesa();
             comecarRonda();
         }
     }
@@ -269,17 +292,34 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     public void jogadorPediuHit(int idJogador) throws RemoteException {
         int proximoJogador = this.indiceJogadorAjogar + 1;
         int totalValor = 0;
+        Jogador jogador = null;
         for (Jogador j : jogadoresAtivos) {
             if (j.getId() == idJogador) {
+                jogador = j;
                 darHitJogador(j);
-                for (int i = 0; i < j.getCartas().size(); i++) {
-                    totalValor += j.getCartas().get(i).getValue();
+
+                for (Card ca : j.getCartas()) {
+                    totalValor += ca.getValue();
+                }
+
+                if (totalValor > 21) {
+                    for (Card c : jogador.getCartas()) {
+                        if (c.getName().equalsIgnoreCase("c1") || c.getName().equalsIgnoreCase("d1") || c.getName().equalsIgnoreCase("s1") || c.getName().equalsIgnoreCase("h1")) {
+                            c.setValue(1);
+                            atualizarJogador();
+                        }
+                    }
+                }
+                totalValor = 0;
+                for (Card ca : j.getCartas()) {
+                    totalValor += ca.getValue();
                 }
                 if (totalValor > 21) {
                     j.getRefJogador().indicarPerdeu();
                     j.setIsPlaying(false);
-                    if (proximoJogador >= jogadoresAtivos.size()) {
+                    if (proximoJogador >= jogadoresAtivos.size() || jogadoresAtivos.get(proximoJogador).isIsEspectador()) {
                         acabarRounda();
+
                     } else {
                         this.indiceJogadorAjogar = proximoJogador;
                         for (Jogador jog : allJogadores) {

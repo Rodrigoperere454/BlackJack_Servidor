@@ -79,10 +79,9 @@ public class Jogador implements Serializable{
     
     public int getValorCartas(){
         int total = 0;
-        for(int i = 0; i < this.cartas.size(); i++){
-            total = this.cartas.get(i).getValue();
-        }
-        
+        for(Card c: this.cartas){
+            total += c.getValue();
+        }     
         return total;
     }
     
