@@ -3,6 +3,7 @@ package Controller;
 import Model.Deck;
 import Model.Jogador;
 import Model.Card;
+import Model.TimerRound;
 import java.rmi.*;
 import java.rmi.server.*;
 import java.rmi.registry.*;
@@ -11,9 +12,14 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class BlackJackDealer_Servidor extends UnicastRemoteObject implements InterfaceJogador {
+    
+
+            
 
     private Deck gameDeck;
     final static int NOME_IGUAL = 0;
@@ -32,16 +38,19 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
 
     private boolean round;
     private int indiceJogadorAjogar = 0;
+    
+    private static TimerRound timer;
 
     BlackJackDealer_Servidor() throws RemoteException {
         super();
     }
 
-    public static void main(String[] args) {
-
+    public static void main(String[] args) {      
         try {
             Registry reg = LocateRegistry.createRegistry(1099);
             BlackJackDealer_Servidor serv = new BlackJackDealer_Servidor();
+            
+            timer = new TimerRound(serv);
 
             reg.rebind("gestorBJ", serv);
 
@@ -68,12 +77,32 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
         synchronized (jogadoresAtivos) {
             carta1 = this.gameDeck.deal();
             carta2 = this.gameDeck.deal();
-
+            
             jogador.addCartas(carta1);
             jogador.addCartas(carta2);
+            
+            if(jogador.getValorCartas() > 21){
+                for(Card c: jogador.getCartas()){
+                    if(c.getName().equalsIgnoreCase("c1") || c.getName().equalsIgnoreCase("d1") || c.getName().equalsIgnoreCase("s1") || c.getName().equalsIgnoreCase("h1")){
+                        c.setValue(1);
+                        atualizarJogador();
+                        break;
+                    }
+                }
+            }
         }
     }
 
+    public void chamarJogadorEspectador() {
+        if (!jogadoresEspectadores.isEmpty() && jogadoresAtivos.size() < 3){
+            Jogador paraJogar = jogadoresEspectadores.remove();
+            System.out.println(paraJogar.getNome());
+            paraJogar.setIsEspectador(false);
+            jogadoresAtivos.add(paraJogar);
+        }
+    }
+
+    
     public void darCartasDealer() {
         if (cartasDealer.isEmpty()) {
             Card carta1 = new Card("bv", 0, 0);
@@ -98,7 +127,9 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     }
 
     public void comecarRonda() {
-        this.round = true;
+        chamarJogadorEspectador();
+       
+        this.round = true;      
         atualizarJogador();
 
         this.gameDeck = new Deck();
@@ -116,6 +147,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
             for (Jogador j : allJogadores) {
                 j.getRefJogador().receberTurno(primeiroAjogar.getId(), primeiroAjogar.getNome());
             }
+            timer.comecarTimer();
         } catch (RemoteException e) {
             System.out.println(e);
 
@@ -124,6 +156,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     }
 
     public void acabarRounda() {
+        timer.desligarTimer();
         this.round = false;
 
         int totalValorDealer = 0;
@@ -197,7 +230,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
                 System.out.println(e);
             }
         }
-
+        this.indiceJogadorAjogar = 0;
         limparCartas();
     }
 
@@ -223,11 +256,13 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
 
             }
 
-            if (saidasInesperadas.size() > 0) {
+            if (!saidasInesperadas.isEmpty()) {
                 for (Jogador i : saidasInesperadas) {
                     jogadoresAtivos.remove(i);
                     allJogadores.remove(i);
-                    System.out.println("Jogador removido");
+                    tirarCartasMesa();
+                    atualizarJogador();
+                    System.out.println("Jogador removido" + i.getNome());
                 }
             }
 
@@ -275,6 +310,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
         } else {
             jogador.setIsEspectador(true);
             jogadoresEspectadores.add(jogador);
+            atualizarJogador();
             return EM_ESP;
         }
 
@@ -315,6 +351,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
                     totalValor += ca.getValue();
                 }
                 if (totalValor > 21) {
+                    timer.desligarTimer();
                     j.getRefJogador().indicarPerdeu();
                     j.setIsPlaying(false);
                     if (proximoJogador >= jogadoresAtivos.size() || jogadoresAtivos.get(proximoJogador).isIsEspectador()) {
@@ -325,6 +362,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
                         for (Jogador jog : allJogadores) {
                             jog.getRefJogador().receberTurno(jogadoresAtivos.get(this.indiceJogadorAjogar).getId(), jogadoresAtivos.get(this.indiceJogadorAjogar).getNome());
                         }
+                        timer.comecarTimer();
 
                     }
                 }
@@ -343,18 +381,28 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
 
     @Override
     public void jogadorPediuStand() throws RemoteException {
+        timer.desligarTimer();
+        List<Jogador> saidasInesperadas = new ArrayList<>();
         int proximoJogador = this.indiceJogadorAjogar + 1;
         if (proximoJogador >= jogadoresAtivos.size() || jogadoresAtivos.get(proximoJogador).isIsEspectador()) {
             acabarRounda();
         } else {
             this.indiceJogadorAjogar = proximoJogador;
-
+            atualizarJogador();
             for (Jogador j : allJogadores) {
-                try {
+                try {                   
                     j.getRefJogador().receberTurno(jogadoresAtivos.get(this.indiceJogadorAjogar).getId(), jogadoresAtivos.get(this.indiceJogadorAjogar).getNome());
                 } catch (RemoteException e) {
+                    saidasInesperadas.add(j);
                     System.out.println(e);
                 }
+            }
+            timer.comecarTimer();
+            for (Jogador remove : saidasInesperadas) {
+                jogadoresAtivos.remove(remove);
+                allJogadores.remove(remove);
+                tirarCartasMesa();
+                atualizarJogador();
             }
         }
     }
