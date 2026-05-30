@@ -382,7 +382,6 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     @Override
     public void jogadorPediuStand() throws RemoteException {
         timer.desligarTimer();
-        List<Jogador> saidasInesperadas = new ArrayList<>();
         int proximoJogador = this.indiceJogadorAjogar + 1;
         if (proximoJogador >= jogadoresAtivos.size() || jogadoresAtivos.get(proximoJogador).isIsEspectador()) {
             acabarRounda();
@@ -393,17 +392,10 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
                 try {                   
                     j.getRefJogador().receberTurno(jogadoresAtivos.get(this.indiceJogadorAjogar).getId(), jogadoresAtivos.get(this.indiceJogadorAjogar).getNome());
                 } catch (RemoteException e) {
-                    saidasInesperadas.add(j);
                     System.out.println(e);
                 }
             }
             timer.comecarTimer();
-            for (Jogador remove : saidasInesperadas) {
-                jogadoresAtivos.remove(remove);
-                allJogadores.remove(remove);
-                tirarCartasMesa();
-                atualizarJogador();
-            }
         }
     }
 }

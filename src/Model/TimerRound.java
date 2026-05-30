@@ -22,7 +22,7 @@ public class TimerRound{
                 try{
                     server.jogadorPediuStand();
                 }catch(Exception e){
-                    
+                    System.out.println(e);
                 }
             }
         };
@@ -34,6 +34,8 @@ public class TimerRound{
     public void desligarTimer(){
         if(this.timer != null){
             this.timer.cancel();
+            //this.timer.purge();
+            //this.timer = null;
         }     
     }
 }
