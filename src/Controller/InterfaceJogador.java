@@ -14,7 +14,10 @@ public interface InterfaceJogador extends Remote{
     
     //callback
     int login(Jogador jogador) throws RemoteException;
+    void logout(int idJogador) throws RemoteException;
+    int passarEspetador(int idJogador) throws RemoteException;
     void jogadorPediuHit(int idJogador) throws RemoteException;
     void jogadorPediuStand() throws RemoteException;
     void iniciarJogo() throws RemoteException;
+    
 }
