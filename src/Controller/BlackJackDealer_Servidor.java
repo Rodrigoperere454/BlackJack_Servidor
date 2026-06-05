@@ -26,7 +26,6 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     final static int UNICO_MESA = 4;
     final static int SUCC = 9;
 
-    
     //Mesagens
     final static String ENTROU = "ENTROU";
     final static String ESPECT = "ESPETADOR";
@@ -109,10 +108,12 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
 
     public void chamarJogadorEspectador() {
         if (!jogadoresEspectadores.isEmpty() && jogadoresAtivos.size() < 3) {
-            Jogador paraJogar = jogadoresEspectadores.remove();
-            System.out.println(paraJogar.getNome());
-            paraJogar.setIsEspectador(false);
-            jogadoresAtivos.add(paraJogar);
+            if (jogadoresEspectadores.peek().getNumeroFichas() != 0) {
+                Jogador paraJogar = jogadoresEspectadores.remove();
+                System.out.println(paraJogar.getNome());
+                paraJogar.setIsEspectador(false);
+                jogadoresAtivos.add(paraJogar);
+            }
         }
     }
 
@@ -142,7 +143,6 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     public void comecarRonda() {
         enviarMensagens(COMECAR, null);
         chamarJogadorEspectador();
-        
 
         this.round = true;
         atualizarJogador();
@@ -174,7 +174,6 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
         enviarMensagens(ACABOU, null);
         timer.desligarTimer();
         this.round = false;
-        
 
         int totalValorDealer = 0;
         for (int i = 0; i < this.cartasDealer.size(); i++) {
@@ -192,8 +191,9 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
 
         if (totalValorDealer > 21) {
             for (Jogador j : jogadoresAtivos) {
-                if (j.isIsPlaying()) {                   
+                if (j.isIsPlaying()) {
                     enviarMensagens(GANHOU + "4", j);
+                    enviarResultados("Ganhou 4 fichas", j);
                     j.setNumeroFichas(4);
                 }
             }
@@ -201,16 +201,19 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
             for (Jogador j : jogadoresAtivos) {
                 if (j.isIsPlaying()) {
                     if (j.getValorCartas() < 21) {
-                        
+
                         enviarMensagens(PERDEU, j);
+                        enviarResultados("Perdes-te", j);
                         j.setNumeroFichas(0);
                     } else if (j.getValorCartas() == 21 && j.getCartas().size() == 2) {
-                        
+
                         enviarMensagens(EMPATE, j);
+                        enviarResultados("Empatas-te com o Dealer", j);
                         j.setNumeroFichas(2);
                     } else if (j.getValorCartas() == 21) {
-                        
+
                         enviarMensagens(PERDEU, j);
+                        enviarResultados("Perdes-te", j);
                         j.setNumeroFichas(0);
                     }
                 }
@@ -220,18 +223,20 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
             for (Jogador jog : jogadoresAtivos) {
                 if (jog.isIsPlaying()) {
                     if (jog.getValorCartas() < 21) {
-                        
+
+                        enviarResultados("Perdes-te", jog);
                         enviarMensagens(PERDEU, jog);
                         jog.setNumeroFichas(0);
                     } else if (jog.getValorCartas() == 21 && jog.getCartas().size() == 2) {
-                        
-                        
+
                         enviarMensagens(BLACKJACK, jog);
-                        enviarMensagens(GANHOU + "4", jog);
-                        jog.setNumeroFichas(4);
+                        enviarMensagens(GANHOU + "5", jog);
+                        enviarResultados("Ganhas-te com Blackjack." + "\n" + "5 fichas", jog);
+                        jog.setNumeroFichas(5);
                     } else if (jog.getValorCartas() == 21) {
-                        
+
                         enviarMensagens(EMPATE, jog);
+                        enviarResultados("Empatas-te com o Dealer", jog);
                         jog.setNumeroFichas(2);
                     }
                 }
@@ -241,21 +246,26 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
             for (Jogador jo : jogadoresAtivos) {
                 if (jo.isIsPlaying()) {
                     if (jo.getValorCartas() == 21 && jo.getCartas().size() == 2) {
-                        
+
                         enviarMensagens(BLACKJACK, jo);
                         enviarMensagens(GANHOU + "5", jo);
+                        enviarResultados("Ganhas-te com Blackjack." + "\n" + "5 fichas", jo);
                         jo.setNumeroFichas(5);
                     } else if (jo.getValorCartas() > totalValorDealer) {
-                        
+
                         enviarMensagens(GANHOU + "4", jo);
+                        enviarResultados("Ganhas-te 4 fichas", jo);
                         jo.setNumeroFichas(4);
                     } else if (jo.getValorCartas() == totalValorDealer) {
-                        
+
                         enviarMensagens(EMPATE, jo);
+                        enviarResultados("Empatas-te com o Dealer", jo);
                         jo.setNumeroFichas(2);
+
                     } else if (jo.getValorCartas() < totalValorDealer) {
-                        
+
                         enviarMensagens(PERDEU, jo);
+                        enviarResultados("Perdes-te", jo);
                         jo.setNumeroFichas(0);
                     }
                 }
@@ -263,16 +273,42 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
             }
         }
 
+        List<Jogador> toEspetador = new ArrayList<Jogador>();
         for (Jogador joga : jogadoresAtivos) {
-            try {
-                joga.setIsEspectador(false);
-                joga.getRefJogador().playAgain();
-            } catch (RemoteException e) {
-                System.out.println(e);
+            joga.setIsEspectador(false);
+            if (!joga.isIsPlaying()) {
+                enviarResultados("Perdes-te", joga);
+            }
+
+            if (joga.getNumeroFichas() == 0 && jogadoresAtivos.size() == 1) {
+                joga.setNumeroFichas(10);
+            } else if (joga.getNumeroFichas() == 0 && jogadoresAtivos.size() > 1) {
+                joga.setIsEspectador(true);
+                toEspetadorCallback(joga);
+                enviarResultados("Ficas-te sem fichas. És espetador", joga);             
+                //joga.setNumeroFichas(10);
+                toEspetador.add(joga);
             }
         }
+
+        if (!toEspetador.isEmpty()) {
+            for (Jogador j : toEspetador) {
+                j.getCartas().clear();
+                jogadoresAtivos.remove(j);
+                jogadoresEspectadores.add(j);
+            }
+        }
+
         this.indiceJogadorAjogar = 0;
         limparCartasDealer();
+    }
+
+    public void enviarResultados(String results, Jogador jo) {
+        try {
+            jo.getRefJogador().resultsFinal(results);
+        } catch (RemoteException e) {
+            System.out.println(e);
+        }
     }
 
     public void enviarMensagens(String info, Jogador jogador) {
@@ -316,15 +352,15 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
                 for (Jogador j : allJogadores) {
                     j.getRefJogador().mensagem("COMECOU:Começou nova Rounda.");
                 }
-            }else if(info.equalsIgnoreCase(ACABOU)){
+            } else if (info.equalsIgnoreCase(ACABOU)) {
                 for (Jogador j : allJogadores) {
                     j.getRefJogador().mensagem("Acabou a Rounda.");
                 }
-            }else if(info.equalsIgnoreCase(EMPATE)){
+            } else if (info.equalsIgnoreCase(EMPATE)) {
                 for (Jogador j : allJogadores) {
                     j.getRefJogador().mensagem("O jogador " + jogador.getNome() + " Empatou com o Dealer");
                 }
-            }else if(info.equalsIgnoreCase(BLACKJACK)){
+            } else if (info.equalsIgnoreCase(BLACKJACK)) {
                 for (Jogador j : allJogadores) {
                     j.getRefJogador().mensagem("O jogador " + jogador.getNome() + " fez BLACKJACK!! PARABÉNS !");
                 }
@@ -346,13 +382,14 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
             for (Jogador j : allJogadores) {
                 try {
                     if (jogadoresAtivos.size() == 1) {
-                        j.getRefJogador().atualizarJanelaJogo(jogadoresAtivos.get(0), null, null, cartasDealer);
+                        j.getRefJogador().atualizarJanelaJogo(jogadoresAtivos.get(0), null, null, cartasDealer, jogadoresEspectadores);
 
                     } else if (jogadoresAtivos.size() == 2) {
-                        j.getRefJogador().atualizarJanelaJogo(jogadoresAtivos.get(0), jogadoresAtivos.get(1), null, cartasDealer);
+                        j.getRefJogador().atualizarJanelaJogo(jogadoresAtivos.get(0), jogadoresAtivos.get(1), null, cartasDealer, jogadoresEspectadores);
                     } else {
-                        j.getRefJogador().atualizarJanelaJogo(jogadoresAtivos.get(0), jogadoresAtivos.get(1), jogadoresAtivos.get(2), cartasDealer);
+                        j.getRefJogador().atualizarJanelaJogo(jogadoresAtivos.get(0), jogadoresAtivos.get(1), jogadoresAtivos.get(2), cartasDealer, jogadoresEspectadores);
                     }
+
                 } catch (RemoteException e) {
                     saidasInesperadas.add(j);
                     e.printStackTrace();
@@ -363,7 +400,12 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
 
             if (!saidasInesperadas.isEmpty()) {
                 for (Jogador i : saidasInesperadas) {
-                    jogadoresAtivos.remove(i);
+                    if(jogadoresAtivos.contains(i)){
+                        jogadoresAtivos.remove(i);
+                    }else if(jogadoresEspectadores.contains(i)){
+                        jogadoresEspectadores.remove(i);
+                    }
+                    
                     allJogadores.remove(i);
                     tirarCartasMesa();
                     atualizarJogador();
@@ -399,7 +441,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
         allJogadores.add(jogador);
 
         if (jogadoresAtivos.isEmpty()) {
-            jogadoresAtivos.add(jogador);   
+            jogadoresAtivos.add(jogador);
 
             enviarMensagens(ENTROU, jogador);
             return A_JOGAR;
@@ -467,7 +509,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
                     j.setIsPlaying(false);
                     if (proximoJogador >= jogadoresAtivos.size() || jogadoresAtivos.get(proximoJogador).isIsEspectador()) {
                         acabarRounda();
-
+                        return;
                     } else {
                         this.indiceJogadorAjogar = proximoJogador;
                         for (Jogador jog : allJogadores) {
@@ -537,6 +579,14 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
                 atualizarJogador();
                 enviarMensagens(SAIU, jogadorRemove);
             }
+        }
+    }
+    
+    public void toEspetadorCallback(Jogador jogador){
+        try{
+            jogador.getRefJogador().toEspetador(jogador);
+        }catch(RemoteException e){
+            System.out.println(e);
         }
     }
 
