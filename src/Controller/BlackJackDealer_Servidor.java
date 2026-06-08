@@ -3,11 +3,13 @@ package Controller;
 import Model.Deck;
 import Model.Jogador;
 import Model.Card;
-import Model.TimerRound;
+import Model.serverTimers;
 import java.rmi.*;
 import java.rmi.server.*;
 import java.rmi.registry.*;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -25,6 +27,8 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     final static int EM_ESP = 3;
     final static int UNICO_MESA = 4;
     final static int SUCC = 9;
+    final static int IN_ROUND = 7;
+    final static int ERROR = 404;
 
     //Mesagens
     final static String ENTROU = "ENTROU";
@@ -52,7 +56,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     private boolean round;
     private int indiceJogadorAjogar = 0;
 
-    private static TimerRound timer;
+    private static serverTimers timer;
 
     BlackJackDealer_Servidor() throws RemoteException {
         super();
@@ -63,7 +67,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
             Registry reg = LocateRegistry.createRegistry(1099);
             BlackJackDealer_Servidor serv = new BlackJackDealer_Servidor();
 
-            timer = new TimerRound(serv);
+            timer = new serverTimers(serv);
 
             reg.rebind("gestorBJ", serv);
 
@@ -75,12 +79,13 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     }
 
     public void limparCartasDealer() {
-
         cartasDealer.clear();
-
-        for (Jogador j : jogadoresAtivos) {
-            j.getCartas().clear();
+        synchronized (jogadoresAtivos) {
+            for (Jogador j : jogadoresAtivos) {
+                j.getCartas().clear();
+            }
         }
+
     }
 
     public void darCartasInicio(Jogador jogador) {
@@ -107,12 +112,16 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     }
 
     public void chamarJogadorEspectador() {
-        if (!jogadoresEspectadores.isEmpty() && jogadoresAtivos.size() < 3) {
-            if (jogadoresEspectadores.peek().getNumeroFichas() != 0) {
-                Jogador paraJogar = jogadoresEspectadores.remove();
-                System.out.println(paraJogar.getNome());
-                paraJogar.setIsEspectador(false);
-                jogadoresAtivos.add(paraJogar);
+        synchronized (jogadoresEspectadores) {
+            synchronized (jogadoresAtivos) {
+                if (!jogadoresEspectadores.isEmpty() && jogadoresAtivos.size() < 3) {
+                    if (jogadoresEspectadores.peek().getNumeroFichas() != 0) {
+                        Jogador paraJogar = jogadoresEspectadores.remove();
+                        System.out.println(paraJogar.getNome());
+                        paraJogar.setIsEspectador(false);
+                        jogadoresAtivos.add(paraJogar);
+                    }
+                }
             }
         }
     }
@@ -130,177 +139,206 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     }
 
     public void tirarCartasMesa() {
-        for (Jogador j : allJogadores) {
-            try {
-                j.getRefJogador().limparCardLabels();
-            } catch (RemoteException e) {
-                System.out.println(e);
+        synchronized (allJogadores) {
+            for (Jogador j : allJogadores) {
+                try {
+                    j.getRefJogador().limparCardLabels();
+                } catch (RemoteException e) {
+                    System.out.println(e);
+                }
             }
-
         }
     }
 
     public void comecarRonda() {
-        enviarMensagens(COMECAR, null);
-        chamarJogadorEspectador();
 
-        this.round = true;
-        atualizarJogador();
+        synchronized (jogadoresAtivos) {
+            synchronized (allJogadores) {
+                synchronized (jogadoresEspectadores) {
 
-        this.gameDeck = new Deck();
-        this.gameDeck.shuffle();
+                    enviarMensagens(COMECAR, null);
+                    chamarJogadorEspectador();
 
-        darCartasDealer();
-        Jogador primeiroAjogar = jogadoresAtivos.get(indiceJogadorAjogar);
+                    this.round = true;
+                    atualizarJogador();
 
-        try {
-            for (Jogador jo : jogadoresAtivos) {
-                jo.setIsPlaying(true);
-                jo.setNumeroFichas(-2);
-                darCartasInicio(jo);
+                    this.gameDeck = new Deck();
+                    this.gameDeck.shuffle();
+
+                    darCartasDealer();
+
+                    Jogador primeiroAjogar = jogadoresAtivos.get(indiceJogadorAjogar);
+
+                    try {
+                        for (Jogador jo : jogadoresAtivos) {
+                            jo.setIsPlaying(true);
+                            jo.setNumeroFichas(-2);
+                            darCartasInicio(jo);
+                        }
+
+                        for (Jogador j : allJogadores) {
+                            j.getRefJogador().receberTurno(primeiroAjogar.getId(), primeiroAjogar.getNome());
+                            enviarMensagens(VEZ, j);
+                        }
+
+                        timer.comecarTimerRonda();
+
+                    } catch (RemoteException e) {
+                        System.out.println(e);
+                    }
+
+                    atualizarJogador();
+                }
             }
-            for (Jogador j : allJogadores) {
-                j.getRefJogador().receberTurno(primeiroAjogar.getId(), primeiroAjogar.getNome());
-            }
-            timer.comecarTimer();
-        } catch (RemoteException e) {
-            System.out.println(e);
-
         }
-        atualizarJogador();
     }
 
     public void acabarRounda() {
-        enviarMensagens(ACABOU, null);
-        timer.desligarTimer();
-        this.round = false;
 
-        int totalValorDealer = 0;
-        for (int i = 0; i < this.cartasDealer.size(); i++) {
-            totalValorDealer += this.cartasDealer.get(i).getValue();
-        }
-        while (totalValorDealer < 17) {
-            darCartasDealer();
-            atualizarJogador();
+        synchronized (jogadoresAtivos) {
+            synchronized (allJogadores) {
+                synchronized (jogadoresEspectadores) {
 
-            totalValorDealer = 0;
-            for (int i = 0; i < this.cartasDealer.size(); i++) {
-                totalValorDealer += this.cartasDealer.get(i).getValue();
-            }
-        }
+                    enviarMensagens(ACABOU, null);
+                    timer.desligarTimer();
+                    timer.playAgainTimer();
+                    this.round = false;
 
-        if (totalValorDealer > 21) {
-            for (Jogador j : jogadoresAtivos) {
-                if (j.isIsPlaying()) {
-                    enviarMensagens(GANHOU + "4", j);
-                    enviarResultados("Ganhou 4 fichas", j);
-                    j.setNumeroFichas(4);
-                }
-            }
-        } else if (totalValorDealer == 21 && cartasDealer.size() == 2) {
-            for (Jogador j : jogadoresAtivos) {
-                if (j.isIsPlaying()) {
-                    if (j.getValorCartas() < 21) {
-
-                        enviarMensagens(PERDEU, j);
-                        enviarResultados("Perdes-te", j);
-                        j.setNumeroFichas(0);
-                    } else if (j.getValorCartas() == 21 && j.getCartas().size() == 2) {
-
-                        enviarMensagens(EMPATE, j);
-                        enviarResultados("Empatas-te com o Dealer", j);
-                        j.setNumeroFichas(2);
-                    } else if (j.getValorCartas() == 21) {
-
-                        enviarMensagens(PERDEU, j);
-                        enviarResultados("Perdes-te", j);
-                        j.setNumeroFichas(0);
+                    int totalValorDealer = 0;
+                    for (int i = 0; i < this.cartasDealer.size(); i++) {
+                        totalValorDealer += this.cartasDealer.get(i).getValue();
                     }
-                }
-            }
 
-        } else if (totalValorDealer == 21) {
-            for (Jogador jog : jogadoresAtivos) {
-                if (jog.isIsPlaying()) {
-                    if (jog.getValorCartas() < 21) {
+                    while (totalValorDealer < 17) {
+                        darCartasDealer();
+                        atualizarJogador();
 
-                        enviarResultados("Perdes-te", jog);
-                        enviarMensagens(PERDEU, jog);
-                        jog.setNumeroFichas(0);
-                    } else if (jog.getValorCartas() == 21 && jog.getCartas().size() == 2) {
-
-                        enviarMensagens(BLACKJACK, jog);
-                        enviarMensagens(GANHOU + "5", jog);
-                        enviarResultados("Ganhas-te com Blackjack." + "\n" + "5 fichas", jog);
-                        jog.setNumeroFichas(5);
-                    } else if (jog.getValorCartas() == 21) {
-
-                        enviarMensagens(EMPATE, jog);
-                        enviarResultados("Empatas-te com o Dealer", jog);
-                        jog.setNumeroFichas(2);
+                        totalValorDealer = 0;
+                        for (int i = 0; i < this.cartasDealer.size(); i++) {
+                            totalValorDealer += this.cartasDealer.get(i).getValue();
+                        }
                     }
-                }
-            }
 
-        } else {
-            for (Jogador jo : jogadoresAtivos) {
-                if (jo.isIsPlaying()) {
-                    if (jo.getValorCartas() == 21 && jo.getCartas().size() == 2) {
+                    if (totalValorDealer > 21) {
+                        for (Jogador j : jogadoresAtivos) {
+                            if (j.isIsPlaying()) {
+                                enviarMensagens(GANHOU + "4", j);
+                                enviarResultados("Ganhou 4 fichas", j);
+                                j.setNumeroFichas(4);
+                            }
+                        }
 
-                        enviarMensagens(BLACKJACK, jo);
-                        enviarMensagens(GANHOU + "5", jo);
-                        enviarResultados("Ganhas-te com Blackjack." + "\n" + "5 fichas", jo);
-                        jo.setNumeroFichas(5);
-                    } else if (jo.getValorCartas() > totalValorDealer) {
+                    } else if (totalValorDealer == 21 && cartasDealer.size() == 2) {
 
-                        enviarMensagens(GANHOU + "4", jo);
-                        enviarResultados("Ganhas-te 4 fichas", jo);
-                        jo.setNumeroFichas(4);
-                    } else if (jo.getValorCartas() == totalValorDealer) {
+                        for (Jogador j : jogadoresAtivos) {
+                            if (j.isIsPlaying()) {
 
-                        enviarMensagens(EMPATE, jo);
-                        enviarResultados("Empatas-te com o Dealer", jo);
-                        jo.setNumeroFichas(2);
+                                if (j.getValorCartas() < 21) {
+                                    enviarMensagens(PERDEU, j);
+                                    enviarResultados("Perdes-te", j);
+                                    j.setNumeroFichas(0);
 
-                    } else if (jo.getValorCartas() < totalValorDealer) {
+                                } else if (j.getValorCartas() == 21 && j.getCartas().size() == 2) {
+                                    enviarMensagens(EMPATE, j);
+                                    enviarResultados("Empatas-te com o Dealer", j);
+                                    j.setNumeroFichas(2);
 
-                        enviarMensagens(PERDEU, jo);
-                        enviarResultados("Perdes-te", jo);
-                        jo.setNumeroFichas(0);
+                                } else {
+                                    enviarMensagens(PERDEU, j);
+                                    enviarResultados("Perdes-te", j);
+                                    j.setNumeroFichas(0);
+                                }
+                            }
+                        }
+
+                    } else if (totalValorDealer == 21) {
+
+                        for (Jogador jog : jogadoresAtivos) {
+                            if (jog.isIsPlaying()) {
+
+                                if (jog.getValorCartas() < 21) {
+                                    enviarResultados("Perdes-te", jog);
+                                    enviarMensagens(PERDEU, jog);
+                                    jog.setNumeroFichas(0);
+
+                                } else if (jog.getValorCartas() == 21 && jog.getCartas().size() == 2) {
+                                    enviarMensagens(BLACKJACK, jog);
+                                    enviarMensagens(GANHOU + "5", jog);
+                                    enviarResultados("Ganhas-te com Blackjack.\n5 fichas", jog);
+                                    jog.setNumeroFichas(5);
+
+                                } else {
+                                    enviarMensagens(EMPATE, jog);
+                                    enviarResultados("Empatas-te com o Dealer", jog);
+                                    jog.setNumeroFichas(2);
+                                }
+                            }
+                        }
+
+                    } else {
+
+                        for (Jogador jo : jogadoresAtivos) {
+                            if (jo.isIsPlaying()) {
+
+                                if (jo.getValorCartas() == 21 && jo.getCartas().size() == 2) {
+                                    enviarMensagens(BLACKJACK, jo);
+                                    enviarMensagens(GANHOU + "5", jo);
+                                    enviarResultados("Ganhas-te com Blackjack.\n5 fichas", jo);
+                                    jo.setNumeroFichas(5);
+
+                                } else if (jo.getValorCartas() > totalValorDealer) {
+                                    enviarMensagens(GANHOU + "4", jo);
+                                    enviarResultados("Ganhas-te 4 fichas", jo);
+                                    jo.setNumeroFichas(4);
+
+                                } else if (jo.getValorCartas() == totalValorDealer) {
+                                    enviarMensagens(EMPATE, jo);
+                                    enviarResultados("Empatas-te com o Dealer", jo);
+                                    jo.setNumeroFichas(2);
+
+                                } else {
+                                    enviarMensagens(PERDEU, jo);
+                                    enviarResultados("Perdes-te", jo);
+                                    jo.setNumeroFichas(0);
+                                }
+                            }
+                        }
                     }
+
+                    List<Jogador> toEspetador = new ArrayList<>();
+
+                    for (Jogador joga : jogadoresAtivos) {
+
+                        joga.setIsEspectador(false);
+
+                        if (!joga.isIsPlaying()) {
+                            enviarResultados("Perdes-te", joga);
+                        }
+
+                        if (joga.getNumeroFichas() <= 0 && jogadoresAtivos.size() == 1) {
+                            joga.setNumeroFichas(10);
+
+                        } else if (joga.getNumeroFichas() <= 0 && jogadoresAtivos.size() > 1) {
+                            joga.setIsEspectador(true);
+                            toEspetadorCallback(joga);
+                            enviarResultados("Ficas-te sem fichas. És espetador", joga);
+                            toEspetador.add(joga);
+                        }
+                    }
+
+                    if (!toEspetador.isEmpty()) {
+                        for (Jogador j : toEspetador) {
+                            j.getCartas().clear();
+                            jogadoresAtivos.remove(j);
+                            jogadoresEspectadores.add(j);
+                        }
+                    }
+
+                    this.indiceJogadorAjogar = 0;
+                    limparCartasDealer();
                 }
-
             }
         }
-
-        List<Jogador> toEspetador = new ArrayList<Jogador>();
-        for (Jogador joga : jogadoresAtivos) {
-            joga.setIsEspectador(false);
-            if (!joga.isIsPlaying()) {
-                enviarResultados("Perdes-te", joga);
-            }
-
-            if (joga.getNumeroFichas() == 0 && jogadoresAtivos.size() == 1) {
-                joga.setNumeroFichas(10);
-            } else if (joga.getNumeroFichas() == 0 && jogadoresAtivos.size() > 1) {
-                joga.setIsEspectador(true);
-                toEspetadorCallback(joga);
-                enviarResultados("Ficas-te sem fichas. És espetador", joga);             
-                //joga.setNumeroFichas(10);
-                toEspetador.add(joga);
-            }
-        }
-
-        if (!toEspetador.isEmpty()) {
-            for (Jogador j : toEspetador) {
-                j.getCartas().clear();
-                jogadoresAtivos.remove(j);
-                jogadoresEspectadores.add(j);
-            }
-        }
-
-        this.indiceJogadorAjogar = 0;
-        limparCartasDealer();
     }
 
     public void enviarResultados(String results, Jogador jo) {
@@ -312,61 +350,69 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     }
 
     public void enviarMensagens(String info, Jogador jogador) {
-        try {
-            if (info.equalsIgnoreCase(ENTROU)) {
-                for (Jogador j : allJogadores) {
-                    j.getRefJogador().mensagem("Jogador " + jogador.getNome() + " Entrou na Mesa.");
+        Date horaAgora = new Date();
+
+        SimpleDateFormat ft = new SimpleDateFormat("HH:mm:ss");
+
+        String horas = ft.format(horaAgora);
+
+        synchronized (allJogadores) {
+            try {
+                if (info.equalsIgnoreCase(ENTROU)) {
+                    for (Jogador j : allJogadores) {
+                        j.getRefJogador().mensagem(horas + ": " + "Jogador " + jogador.getNome() + " Entrou na Mesa.");
+                    }
+                } else if (info.equalsIgnoreCase(ESPECT)) {
+                    for (Jogador j : allJogadores) {
+                        j.getRefJogador().mensagem(horas + ": " + "Jogador " + jogador.getNome() + " Entrou como Espetador.");
+                    }
+                } else if (info.equalsIgnoreCase(HIT)) {
+                    String carta = jogador.getCartas().getLast().getName();
+                    for (Jogador j : allJogadores) {
+                        j.getRefJogador().mensagem(horas + ": " + "Jogador " + jogador.getNome() + " pediu uma carta - " + carta);
+                    }
+                } else if (info.equalsIgnoreCase(STAND)) {
+                    for (Jogador j : allJogadores) {
+                        j.getRefJogador().mensagem(horas + ": " + "Jogador " + jogador.getNome() + " pediu Stand");
+                    }
+                } else if (info.equalsIgnoreCase(VEZ)) {
+                    for (Jogador j : allJogadores) {
+                        j.getRefJogador().mensagem(horas + ": " + "É a vez do " + jogador.getNome());
+                    }
+                } else if (info.equalsIgnoreCase(PERDEU)) {
+                    for (Jogador j : allJogadores) {
+                        j.getRefJogador().mensagem(horas + ": " + "O jogador " + jogador.getNome() + " Perdeu.");
+                    }
+                } else if (info.contains(GANHOU)) {
+                    int indexFichas = info.indexOf(":") + 1;
+                    String fichas = info.substring(indexFichas, info.length());
+                    for (Jogador j : allJogadores) {
+                        j.getRefJogador().mensagem(horas + ": " + "O jogador " + jogador.getNome() + " Ganhou " + fichas + " fichas.");
+                    }
+                } else if (info.equalsIgnoreCase(SAIU)) {
+                    for (Jogador j : allJogadores) {
+                        j.getRefJogador().mensagem(horas + ": " + "O jogador " + jogador.getNome() + " Saiu da mesa.");
+                    }
+                } else if (info.equalsIgnoreCase(COMECAR)) {
+                    for (Jogador j : allJogadores) {
+                        j.getRefJogador().mensagem(horas + "; " + "COMECOU:Começou nova Ronda.");
+                    }
+                } else if (info.equalsIgnoreCase(ACABOU)) {
+                    for (Jogador j : allJogadores) {
+                        j.getRefJogador().mensagem(horas + ": " + "Acabou a Rounda.");
+                    }
+                } else if (info.equalsIgnoreCase(EMPATE)) {
+                    for (Jogador j : allJogadores) {
+                        j.getRefJogador().mensagem(horas + ": " + "O jogador " + jogador.getNome() + " Empatou com o Dealer");
+                    }
+                } else if (info.equalsIgnoreCase(BLACKJACK)) {
+                    for (Jogador j : allJogadores) {
+                        j.getRefJogador().mensagem(horas + ": " + "O jogador " + jogador.getNome() + " fez BLACKJACK!! PARABÉNS !");
+                    }
                 }
-            } else if (info.equalsIgnoreCase(ESPECT)) {
-                for (Jogador j : allJogadores) {
-                    j.getRefJogador().mensagem("Jogador " + jogador.getNome() + " Entrou como Espetador.");
-                }
-            } else if (info.equalsIgnoreCase(HIT)) {
-                String carta = jogador.getCartas().getLast().getName();
-                for (Jogador j : allJogadores) {
-                    j.getRefJogador().mensagem("Jogador " + jogador.getNome() + " pediu uma carta - " + carta);
-                }
-            } else if (info.equalsIgnoreCase(STAND)) {
-                for (Jogador j : allJogadores) {
-                    j.getRefJogador().mensagem("Jogador " + jogador.getNome() + " pediu Stand - ");
-                }
-            } else if (info.equalsIgnoreCase(VEZ)) {
-                for (Jogador j : allJogadores) {
-                    j.getRefJogador().mensagem("É a vez do " + jogador.getNome());
-                }
-            } else if (info.equalsIgnoreCase(PERDEU)) {
-                for (Jogador j : allJogadores) {
-                    j.getRefJogador().mensagem("O jogador " + jogador.getNome() + " Perdeu.");
-                }
-            } else if (info.contains(GANHOU)) {
-                int indexFichas = info.indexOf(":") + 1;
-                String fichas = info.substring(indexFichas, info.length());
-                for (Jogador j : allJogadores) {
-                    j.getRefJogador().mensagem("O jogador " + jogador.getNome() + " Ganhou " + fichas + " fichas.");
-                }
-            } else if (info.equalsIgnoreCase(SAIU)) {
-                for (Jogador j : allJogadores) {
-                    j.getRefJogador().mensagem("O jogador " + jogador.getNome() + " Saiu da mesa.");
-                }
-            } else if (info.equalsIgnoreCase(COMECAR)) {
-                for (Jogador j : allJogadores) {
-                    j.getRefJogador().mensagem("COMECOU:Começou nova Rounda.");
-                }
-            } else if (info.equalsIgnoreCase(ACABOU)) {
-                for (Jogador j : allJogadores) {
-                    j.getRefJogador().mensagem("Acabou a Rounda.");
-                }
-            } else if (info.equalsIgnoreCase(EMPATE)) {
-                for (Jogador j : allJogadores) {
-                    j.getRefJogador().mensagem("O jogador " + jogador.getNome() + " Empatou com o Dealer");
-                }
-            } else if (info.equalsIgnoreCase(BLACKJACK)) {
-                for (Jogador j : allJogadores) {
-                    j.getRefJogador().mensagem("O jogador " + jogador.getNome() + " fez BLACKJACK!! PARABÉNS !");
-                }
+            } catch (RemoteException e) {
+                System.out.println(e);
             }
-        } catch (RemoteException e) {
-            System.out.println(e);
         }
 
     }
@@ -398,19 +444,22 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
 
             }
 
-            if (!saidasInesperadas.isEmpty()) {
-                for (Jogador i : saidasInesperadas) {
-                    if(jogadoresAtivos.contains(i)){
-                        jogadoresAtivos.remove(i);
-                    }else if(jogadoresEspectadores.contains(i)){
-                        jogadoresEspectadores.remove(i);
+            synchronized (jogadoresAtivos) {
+                if (!saidasInesperadas.isEmpty()) {
+                    for (Jogador i : saidasInesperadas) {
+                        if (jogadoresAtivos.contains(i)) {
+                            jogadoresAtivos.remove(i);
+                        } else if (jogadoresEspectadores.contains(i)) {
+                            jogadoresEspectadores.remove(i);
+                        }
+
+                        allJogadores.remove(i);
+                        tirarCartasMesa();
+                        atualizarJogador();
+                        System.out.println("Jogador removido" + i.getNome());
                     }
-                    
-                    allJogadores.remove(i);
-                    tirarCartasMesa();
-                    atualizarJogador();
-                    System.out.println("Jogador removido" + i.getNome());
                 }
+
             }
 
         }
@@ -431,45 +480,55 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     @Override
     public int login(Jogador jogador) throws RemoteException {
 
-        for (Jogador j : allJogadores) {
-            if (j.getNome().equalsIgnoreCase(jogador.getNome())) {
-                return NOME_IGUAL;
+        synchronized (jogadoresAtivos) {
+            synchronized (allJogadores) {
+                synchronized (jogadoresEspectadores) {
+
+                    for (Jogador j : allJogadores) {
+                        if (j.getNome().equalsIgnoreCase(jogador.getNome())) {
+                            return NOME_IGUAL;
+                        }
+                    }
+
+                    atribuirIDjogador(jogador, idJogador.incrementAndGet());
+                    allJogadores.add(jogador);
+
+                    if (jogadoresAtivos.isEmpty()) {
+                        jogadoresAtivos.add(jogador);
+
+                        enviarMensagens(ENTROU, jogador);
+                        return A_JOGAR;
+                    } else if (jogadoresAtivos.size() < 3) {
+                        if (round) {
+                            jogador.setIsEspectador(true);
+                            jogador.getRefJogador().meioRounda();
+                            jogadoresAtivos.add(jogador);
+                            atualizarJogador();
+                            enviarMensagens(ENTROU, jogador);
+                            return EM_RONDA;
+                        } else {
+                            jogadoresAtivos.add(jogador);
+                            enviarMensagens(ENTROU, jogador);
+                            return A_JOGAR;
+                        }
+                    } else {
+                        jogador.setIsEspectador(true);
+                        jogadoresEspectadores.add(jogador);
+                        atualizarJogador();
+                        enviarMensagens(ESPECT, jogador);
+                        return EM_ESP;
+                    }
+                }
+
             }
-        }
 
-        atribuirIDjogador(jogador, idJogador.incrementAndGet());
-        allJogadores.add(jogador);
-
-        if (jogadoresAtivos.isEmpty()) {
-            jogadoresAtivos.add(jogador);
-
-            enviarMensagens(ENTROU, jogador);
-            return A_JOGAR;
-        } else if (jogadoresAtivos.size() < 3) {
-            if (round) {
-                jogador.setIsEspectador(true);
-                jogador.getRefJogador().meioRounda();
-                jogadoresAtivos.add(jogador);
-                atualizarJogador();
-                enviarMensagens(ENTROU, jogador);
-                return EM_RONDA;
-            } else {
-                jogadoresAtivos.add(jogador);
-                enviarMensagens(ENTROU, jogador);
-                return A_JOGAR;
-            }
-        } else {
-            jogador.setIsEspectador(true);
-            jogadoresEspectadores.add(jogador);
-            atualizarJogador();
-            enviarMensagens(ESPECT, jogador);
-            return EM_ESP;
         }
 
     }
 
     @Override
     public void iniciarJogo() throws RemoteException {
+        timer.desligarTimer();
         if (jogadoresAtivos.size() > 0) {
             tirarCartasMesa();
             comecarRonda();
@@ -515,7 +574,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
                         for (Jogador jog : allJogadores) {
                             jog.getRefJogador().receberTurno(jogadoresAtivos.get(this.indiceJogadorAjogar).getId(), jogadoresAtivos.get(this.indiceJogadorAjogar).getNome());
                         }
-                        timer.comecarTimer();
+                        timer.comecarTimerRonda();
 
                     }
                 }
@@ -535,7 +594,10 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     @Override
     public void jogadorPediuStand() throws RemoteException {
         timer.desligarTimer();
+
         int proximoJogador = this.indiceJogadorAjogar + 1;
+        System.out.println("Indice jogador - " + proximoJogador);
+        System.out.println("jogadores ativos - " + jogadoresAtivos.size());
         enviarMensagens(STAND, jogadoresAtivos.get(this.indiceJogadorAjogar));
         if (proximoJogador >= jogadoresAtivos.size() || jogadoresAtivos.get(proximoJogador).isIsEspectador()) {
             acabarRounda();
@@ -550,7 +612,7 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
                     System.out.println(e);
                 }
             }
-            timer.comecarTimer();
+            timer.comecarTimerRonda();
         }
     }
 
@@ -558,34 +620,40 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     public void logout(int idJogador) throws RemoteException {
         Jogador jogadorRemove = null;
 
-        for (Jogador j : jogadoresAtivos) {
-            if (j.getId() == idJogador) {
-                jogadorRemove = j;
+        synchronized (jogadoresAtivos) {
+            synchronized (allJogadores) {
+                for (Jogador j : jogadoresAtivos) {
+                    if (j.getId() == idJogador) {
+                        jogadorRemove = j;
+                    }
+                }
+
+                if (jogadorRemove != null) {
+                    if (jogadoresAtivos.size() == 1) {
+                        jogadoresAtivos.remove(jogadorRemove);
+                        allJogadores.remove(jogadorRemove);
+                        tirarCartasMesa();
+                        atualizarJogador();
+                        acabarRounda();
+
+                    } else {
+                        jogadoresAtivos.remove(jogadorRemove);
+                        allJogadores.remove(jogadorRemove);
+                        tirarCartasMesa();
+                        atualizarJogador();
+                        enviarMensagens(SAIU, jogadorRemove);
+                    }
+                }
             }
+
         }
 
-        if (jogadorRemove != null) {
-            if (jogadoresAtivos.size() == 1) {
-                jogadoresAtivos.remove(jogadorRemove);
-                allJogadores.remove(jogadorRemove);
-                tirarCartasMesa();
-                atualizarJogador();
-                acabarRounda();
-
-            } else {
-                jogadoresAtivos.remove(jogadorRemove);
-                allJogadores.remove(jogadorRemove);
-                tirarCartasMesa();
-                atualizarJogador();
-                enviarMensagens(SAIU, jogadorRemove);
-            }
-        }
     }
-    
-    public void toEspetadorCallback(Jogador jogador){
-        try{
+
+    public void toEspetadorCallback(Jogador jogador) {
+        try {
             jogador.getRefJogador().toEspetador(jogador);
-        }catch(RemoteException e){
+        } catch (RemoteException e) {
             System.out.println(e);
         }
     }
@@ -593,26 +661,36 @@ public class BlackJackDealer_Servidor extends UnicastRemoteObject implements Int
     @Override
     public int passarEspetador(int idJogador) throws RemoteException {
         Jogador jogadorEspetador = null;
-        for (Jogador j : jogadoresAtivos) {
-            if (j.getId() == idJogador) {
-                jogadorEspetador = j;
-            }
-        }
-        if (jogadorEspetador != null) {
-            if (jogadoresAtivos.size() == 1) {
-                return UNICO_MESA;
-            } else {
-                if (this.round) {
-                    jogadorPediuStand();
-                    jogadorEspetador.getCartas().clear();
-                    jogadoresAtivos.remove(jogadorEspetador);
-                    jogadoresEspectadores.add(jogadorEspetador);
-                    enviarMensagens(ESPECT, jogadorEspetador);
-                    return EM_ESP;
-                }
 
+        synchronized (jogadoresAtivos) {
+            synchronized (jogadoresEspectadores) {
+                for (Jogador j : jogadoresAtivos) {
+                    if (j.getId() == idJogador) {
+                        jogadorEspetador = j;
+                    }
+                }
+                if (jogadorEspetador != null) {
+                    if (jogadoresAtivos.size() == 1) {
+                        return UNICO_MESA;
+                    } else {
+                        if (this.round) {
+                            return IN_ROUND;
+                        } else {
+                            jogadorEspetador.getCartas().clear();
+                            jogadoresAtivos.remove(jogadorEspetador);
+                            jogadoresEspectadores.add(jogadorEspetador);
+
+                            jogadorEspetador.setIsEspectador(true);
+                            toEspetadorCallback(jogadorEspetador);
+                            enviarMensagens(ESPECT, jogadorEspetador);
+                            return SUCC;
+                        }
+
+                    }
+                }
             }
+
         }
-        return SUCC;
+        return ERROR;
     }
 }
