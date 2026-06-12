@@ -11,8 +11,7 @@ public interface InterfaceJogador extends Remote{
     boolean adicionaItem(Item novo)throws RemoteException;
     boolean removeItem(int id) throws RemoteException;
     int oferece(int id, float valor) throws RemoteException;*/
-    
-    //callback
+   
     int login(Jogador jogador) throws RemoteException;
     void logout(int idJogador) throws RemoteException;
     int passarEspetador(int idJogador) throws RemoteException;

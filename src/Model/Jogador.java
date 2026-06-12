@@ -13,6 +13,7 @@ public class Jogador implements Serializable{
     private InterfaceJogadorCB refJogador;
     private boolean isEspectador;
     private boolean isPlaying;
+    private boolean isQuited;
 
     public boolean isIsPlaying() {
         return isPlaying;
@@ -83,6 +84,14 @@ public class Jogador implements Serializable{
             total += c.getValue();
         }     
         return total;
+    }
+
+    public boolean isIsQuited() {
+        return isQuited;
+    }
+
+    public void setIsQuited(boolean isQuited) {
+        this.isQuited = isQuited;
     }
     
      

@@ -26,17 +26,25 @@ public class serverTimers{
             }
         };
         
-        this.timer.schedule(task, 10000);          
+        this.timer.schedule(task, 15000);          
     }
     
     
-    public void comecarTimerRonda(){
-        this.timer = new Timer();
+    public void comecarTimerTurno(Jogador jogador){
+        if(jogador.isIsQuited()){
+            try{
+                server.jogadorPediuStand();
+            }catch(Exception e){
+                System.out.println(e);
+            }            
+        }else{
+            this.timer = new Timer();
         TimerTask task = new TimerTask() {
             @Override
             public void run() {
                 try{
                     server.jogadorPediuStand();
+                    System.out.println("Opasaaaaaa");
                 }catch(Exception e){
                     System.out.println(e);
                 }
@@ -44,6 +52,8 @@ public class serverTimers{
         };
         
         this.timer.schedule(task, 20000);
+        }
+        
     }
     
     
